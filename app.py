@@ -802,11 +802,15 @@ def admin_login():
             conn = get_db_connection()
             cursor = conn.cursor()
             
-            # Use direct database query with proper parameter handling
-            database_url = os.getenv('DATABASE_URL')
-            is_postgres = database_url and ('postgresql' in database_url or 'postgres' in database_url)
+            # Determine actual database type by testing connection
+            is_actual_postgres = False
+            try:
+                import psycopg2
+                is_actual_postgres = isinstance(conn, psycopg2.extensions.connection)
+            except:
+                is_actual_postgres = False
             
-            if is_postgres:
+            if is_actual_postgres:
                 cursor.execute('SELECT * FROM admins WHERE username = %s', (username,))
             else:
                 cursor.execute('SELECT * FROM admins WHERE username = ?', (username,))
