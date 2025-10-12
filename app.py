@@ -159,18 +159,43 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         return conn
 
+def hash_password(password):
+    """Hash a password using SHA-256 with salt"""
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}:{password_hash}"
+
+def verify_password(password, stored_hash):
+    """Verify a password against its hash"""
+    try:
+        salt, password_hash = stored_hash.split(':')
+        return hashlib.sha256((password + salt).encode()).hexdigest() == password_hash
+    except:
+        return False
+
 def init_database():
     """Initializes database tables and creates the default admin user."""
     try:
-        database_url = os.getenv('DATABASE_URL')
-        is_postgres = database_url and database_url.startswith('postgresql')
-        
-        print(f"🔗 Database Type: {'PostgreSQL' if is_postgres else 'SQLite'}")
-        
+        # Get actual database connection (which handles fallbacks)
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        if is_postgres:
+        # Determine actual database type by testing connection
+        database_url = os.getenv('DATABASE_URL')
+        is_postgres_url = database_url and ('postgresql' in database_url or 'postgres' in database_url)
+        
+        # Test if we're actually using PostgreSQL by checking connection type
+        is_actual_postgres = False
+        try:
+            import psycopg2
+            is_actual_postgres = isinstance(conn, psycopg2.extensions.connection)
+        except:
+            is_actual_postgres = False
+        
+        print(f"🔗 Database URL Type: {'PostgreSQL' if is_postgres_url else 'SQLite'}")
+        print(f"🔗 Actual Connection: {'PostgreSQL' if is_actual_postgres else 'SQLite'}")
+        
+        if is_actual_postgres:
             # PostgreSQL syntax
             print("📊 Creating PostgreSQL tables...")
             cursor.execute('''
@@ -234,10 +259,6 @@ def init_database():
         else:
             # SQLite syntax
             print("📊 Creating SQLite tables...")
-            # Ensure directory exists for database file
-            db_dir = os.path.dirname(os.path.abspath('fixmyhyd.db'))
-            if not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
             
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS complaints (
@@ -304,7 +325,7 @@ def init_database():
             print("👤 Creating default admin user...")
             admin_password = hash_password('admin123')
             
-            if is_postgres:
+            if is_actual_postgres:
                 cursor.execute('''
                     INSERT INTO admins (username, password_hash, name)
                     VALUES (%s, %s, %s)
@@ -623,20 +644,6 @@ def execute_query(conn, query, params=None, fetch_one=False, fetch_all=False):
         import traceback
         traceback.print_exc()
         raise
-
-def hash_password(password):
-    """Hash a password using SHA-256 with salt"""
-    salt = secrets.token_hex(16)
-    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
-    return f"{salt}:{password_hash}"
-
-def verify_password(password, stored_hash):
-    """Verify a password against its hash"""
-    try:
-        salt, password_hash = stored_hash.split(':')
-        return hashlib.sha256((password + salt).encode()).hexdigest() == password_hash
-    except:
-        return False
 
 def login_required(f):
     @wraps(f)
