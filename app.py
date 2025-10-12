@@ -326,6 +326,16 @@ def init_database():
         traceback.print_exc()
         raise
 
+# Initialize database immediately when app starts (for production deployment)
+try:
+    print("🚀 Initializing database on app startup...")
+    init_database()
+    print("✅ App startup database initialization completed")
+except Exception as e:
+    print(f"❌ App startup database initialization failed: {e}")
+    import traceback
+    traceback.print_exc()
+
 # ==================== 3. AI HELPER FUNCTIONS (PLACEHOLDERS) ====================
 # NOTE: Actual Gemini API integration logic is complex and requires proper API keys.
 # These functions are placeholders to ensure the app logic can proceed.
