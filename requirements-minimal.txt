@@ -1,0 +1,11 @@
+# Minimal requirements for Render deployment
+# Start with these basic packages, add others if needed
+
+Flask==2.3.3
+pillow
+python-dotenv
+google-generativeai
+gunicorn
+
+# Using 'pillow' without version to get latest compatible wheel
+# This avoids build-from-source issues
