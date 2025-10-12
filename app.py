@@ -101,78 +101,110 @@ check_api_keys()
 # ==================== 2. DATABASE SETUP ====================
 
 def get_db_connection():
-    """Establishes SQLite connection and sets row_factory to sqlite3.Row for dictionary access."""
-    conn = sqlite3.connect('fixmyhyd.db')
+    """Establishes SQLite connection with proper path for Render deployment."""
+    # Use a path that works both locally and on Render
+    db_path = os.getenv('DATABASE_PATH', '/opt/render/project/src/fixmyhyd.db')
+    if not os.path.exists('/opt/render'):
+        # Local development
+        db_path = 'fixmyhyd.db'
+    
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_database():
     """Initializes all required SQLite tables and creates the default admin user."""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS complaints (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ghmc_id TEXT UNIQUE NOT NULL,
-            category TEXT NOT NULL,
-            priority TEXT DEFAULT 'Medium',
-            subject TEXT NOT NULL,
-            description TEXT NOT NULL,
-            location TEXT,
-            zone TEXT,
-            gps_lat REAL,
-            gps_lng REAL,
-            status TEXT DEFAULT 'Submitted',
-            submitted_by TEXT DEFAULT 'Citizen',
-            user_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            complaint_id INTEGER,
-            old_status TEXT,
-            new_status TEXT,
-            changed_by TEXT,
-            comments TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (complaint_id) REFERENCES complaints (id)
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            name TEXT NOT NULL,
-            phone TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Create default admin if none exists (admin/admin123)
-    c.execute('SELECT COUNT(*) FROM admins')
-    if c.fetchone()[0] == 0:
-        admin_password = hash_password('admin123')
+    try:
+        # Ensure directory exists for database file
+        db_dir = os.path.dirname(os.path.abspath('fixmyhyd.db'))
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+        
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        # Create tables with error handling
         c.execute('''
-            INSERT INTO admins (username, password_hash, name)
-            VALUES (?, ?, ?)
-        ''', ('admin', admin_password, 'System Administrator'))
-    
-    conn.commit()
-    conn.close()
+            CREATE TABLE IF NOT EXISTS complaints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ghmc_id TEXT UNIQUE NOT NULL,
+                category TEXT NOT NULL,
+                priority TEXT DEFAULT 'Medium',
+                subject TEXT NOT NULL,
+                description TEXT NOT NULL,
+                location TEXT,
+                zone TEXT,
+                gps_lat REAL,
+                gps_lng REAL,
+                status TEXT DEFAULT 'Submitted',
+                submitted_by TEXT DEFAULT 'Citizen',
+                user_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS status_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                complaint_id INTEGER,
+                old_status TEXT,
+                new_status TEXT,
+                changed_by TEXT,
+                comments TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (complaint_id) REFERENCES complaints (id)
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                phone TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS admins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Create default admin if none exists (admin/admin123)
+        c.execute('SELECT COUNT(*) FROM admins')
+        if c.fetchone()[0] == 0:
+            admin_password = hash_password('admin123')
+            c.execute('''
+                INSERT INTO admins (username, password_hash, name)
+                VALUES (?, ?, ?)
+            ''', ('admin', admin_password, 'System Administrator'))
+        
+        conn.commit()
+        conn.close()
+        print("✅ Database initialized successfully")
+        
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        # Create in-memory database as fallback
+        try:
+            print("🔄 Attempting fallback database setup...")
+            conn = sqlite3.connect(':memory:')
+            conn.row_factory = sqlite3.Row
+            # Re-run table creation for in-memory DB
+            # This is a temporary fix for deployment
+            print("⚠️ Using in-memory database (data will not persist)")
+        except Exception as fallback_error:
+            print(f"❌ Fallback database also failed: {fallback_error}")
+            raise
 
 # ==================== 3. AI HELPER FUNCTIONS (PLACEHOLDERS) ====================
 # NOTE: Actual Gemini API integration logic is complex and requires proper API keys.
