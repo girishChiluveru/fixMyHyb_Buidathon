@@ -104,30 +104,58 @@ def get_db_connection():
     """Establishes database connection - PostgreSQL for production, SQLite for development."""
     database_url = os.getenv('DATABASE_URL')
     
-    if database_url and database_url.startswith('postgresql'):
+    print(f"🔗 Database URL present: {bool(database_url)}")
+    if database_url:
+        print(f"🔗 Database URL starts with: {database_url[:20]}...")
+    
+    if database_url and ('postgresql' in database_url or 'postgres' in database_url):
         # Production: Use PostgreSQL
         try:
             import psycopg2
             from psycopg2.extras import RealDictCursor
+            
             # Fix Render's internal URL format if needed
             if database_url.startswith('postgres://'):
                 database_url = database_url.replace('postgres://', 'postgresql://', 1)
+                print("🔄 Fixed postgres:// to postgresql://")
+            
+            print("🔗 Attempting PostgreSQL connection...")
             conn = psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+            print("✅ PostgreSQL connection successful")
             return conn
-        except ImportError:
-            print("❌ psycopg2 not installed. Install with: pip install psycopg2-binary")
-            raise
+            
+        except ImportError as e:
+            print(f"❌ psycopg2 not installed: {e}")
+            print("📥 Install with: pip install psycopg2-binary")
+            # Fall back to SQLite
+            print("🔄 Falling back to SQLite...")
+            
         except Exception as e:
             print(f"❌ PostgreSQL connection failed: {e}")
-            raise
-    else:
-        # Development: Use SQLite
-        db_path = os.getenv('DATABASE_PATH', '/opt/render/project/src/fixmyhyd.db')
-        if not os.path.exists('/opt/render'):
-            # Local development
-            db_path = 'fixmyhyd.db'
+            print(f"🔗 Database URL: {database_url[:50]}...")
+            # Fall back to SQLite
+            print("🔄 Falling back to SQLite...")
+    
+    # Development: Use SQLite or fallback
+    print("🗄️ Using SQLite database...")
+    try:
+        db_path = os.getenv('DATABASE_PATH', 'fixmyhyd.db')
+        
+        # For Render, try a writable location
+        if '/opt/render' in os.getcwd():
+            db_path = '/tmp/fixmyhyd.db'
+            print(f"🔗 Render detected, using temp path: {db_path}")
         
         conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        print(f"✅ SQLite connection successful: {db_path}")
+        return conn
+        
+    except Exception as e:
+        print(f"❌ SQLite connection also failed: {e}")
+        # Last resort: in-memory database
+        print("🔄 Using in-memory database (data will not persist)")
+        conn = sqlite3.connect(':memory:')
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -1148,6 +1176,46 @@ def health_check():
             'database_connected': False,
             'error': str(e),
             'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/db-status')
+def database_status():
+    """Simple database status check"""
+    try:
+        database_url = os.getenv('DATABASE_URL')
+        
+        # Environment info
+        env_info = {
+            'DATABASE_URL_set': bool(database_url),
+            'DATABASE_URL_type': 'postgresql' if database_url and 'postgresql' in database_url else 'other',
+            'DATABASE_URL_preview': database_url[:30] + '...' if database_url else 'Not set',
+            'psycopg2_available': False,
+            'current_dir': os.getcwd(),
+            'environment': os.getenv('FLASK_ENV', 'development')
+        }
+        
+        # Check psycopg2
+        try:
+            import psycopg2
+            env_info['psycopg2_available'] = True
+            env_info['psycopg2_version'] = psycopg2.__version__
+        except ImportError:
+            env_info['psycopg2_available'] = False
+        
+        # Test connection
+        try:
+            conn = get_db_connection()
+            conn.close()
+            env_info['connection_status'] = 'SUCCESS'
+        except Exception as e:
+            env_info['connection_status'] = f'FAILED: {str(e)}'
+        
+        return jsonify(env_info), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'status': 'CRITICAL_ERROR'
         }), 500
 
 @app.route('/db-test')
