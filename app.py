@@ -573,7 +573,7 @@ def reverse_geocode_coordinates(latitude, longitude, max_retries=3):
 def execute_query(conn, query, params=None, fetch_one=False, fetch_all=False):
     """Execute database query with proper parameter handling for PostgreSQL/SQLite"""
     database_url = os.getenv('DATABASE_URL')
-    is_postgres = database_url and database_url.startswith('postgresql')
+    is_postgres = database_url and ('postgresql' in database_url or 'postgres' in database_url)
     
     try:
         cursor = conn.cursor()
@@ -588,16 +588,30 @@ def execute_query(conn, query, params=None, fetch_one=False, fetch_all=False):
         
         if fetch_one:
             result = cursor.fetchone()
-            return dict(result) if result else None
+            # Handle both PostgreSQL (RealDictCursor) and SQLite (Row) results
+            if result:
+                if is_postgres:
+                    return dict(result)  # psycopg2 RealDictCursor already returns dict-like
+                else:
+                    return dict(result)  # SQLite Row object
+            return None
         elif fetch_all:
             results = cursor.fetchall()
-            return [dict(row) for row in results] if results else []
+            if results:
+                if is_postgres:
+                    return [dict(row) for row in results]  # psycopg2 RealDictCursor
+                else:
+                    return [dict(row) for row in results]  # SQLite Row objects
+            return []
         else:
             return cursor
     except Exception as e:
         print(f"❌ Database query error: {e}")
         print(f"Query: {query}")
         print(f"Params: {params}")
+        print(f"Is PostgreSQL: {is_postgres}")
+        import traceback
+        traceback.print_exc()
         raise
 
 def hash_password(password):
@@ -769,18 +783,38 @@ def admin_login():
         
         try:
             conn = get_db_connection()
-            admin = execute_query(conn, 'SELECT * FROM admins WHERE username = ?', (username,), fetch_one=True)
+            cursor = conn.cursor()
+            
+            # Use direct database query with proper parameter handling
+            database_url = os.getenv('DATABASE_URL')
+            is_postgres = database_url and ('postgresql' in database_url or 'postgres' in database_url)
+            
+            if is_postgres:
+                cursor.execute('SELECT * FROM admins WHERE username = %s', (username,))
+            else:
+                cursor.execute('SELECT * FROM admins WHERE username = ?', (username,))
+            
+            admin = cursor.fetchone()
             conn.close()
             
-            if admin and verify_password(password, admin['password_hash']):
-                session['admin_id'] = admin['id']
-                session['admin_name'] = admin['name']
-                flash('Admin login successful!', 'success')
-                return redirect(url_for('admin_dashboard'))
+            # Convert result to dict format
+            if admin:
+                admin_dict = dict(admin) if hasattr(admin, 'keys') else admin
+                
+                if verify_password(password, admin_dict['password_hash']):
+                    session['admin_id'] = admin_dict['id']
+                    session['admin_name'] = admin_dict['name']
+                    flash('Admin login successful!', 'success')
+                    return redirect(url_for('admin_dashboard'))
+                else:
+                    flash('Invalid username or password.', 'error')
             else:
                 flash('Invalid username or password.', 'error')
+                
         except Exception as e:
             print(f"❌ Admin login database error: {e}")
+            import traceback
+            traceback.print_exc()
             flash('Database connection error. Please try again.', 'error')
     
     return render_template('admin_login.html')
@@ -1176,6 +1210,51 @@ def health_check():
             'database_connected': False,
             'error': str(e),
             'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/admin-check')
+def admin_check():
+    """Check if admin users exist and can be queried"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        database_url = os.getenv('DATABASE_URL')
+        is_postgres = database_url and ('postgresql' in database_url or 'postgres' in database_url)
+        
+        # Count admins
+        cursor.execute('SELECT COUNT(*) FROM admins')
+        count_result = cursor.fetchone()
+        admin_count = count_result[0] if count_result else 0
+        
+        # Get admin details
+        cursor.execute('SELECT username, name, created_at FROM admins')
+        admins = cursor.fetchall()
+        
+        admin_list = []
+        for admin in admins:
+            admin_dict = dict(admin) if hasattr(admin, 'keys') else {
+                'username': admin[0],
+                'name': admin[1], 
+                'created_at': str(admin[2])
+            }
+            admin_list.append(admin_dict)
+        
+        conn.close()
+        
+        return jsonify({
+            'database_type': 'PostgreSQL' if is_postgres else 'SQLite',
+            'admin_count': admin_count,
+            'admins': admin_list,
+            'status': 'SUCCESS'
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'status': 'FAILED'
         }), 500
 
 @app.route('/db-status')
