@@ -754,7 +754,9 @@ def report_issue_endpoint():
     if audio_file:
         print("STAGE 3: Processing Audio...")
         # Save audio temporarily for Gemini processing (required for file uploads)
-        temp_path = os.path.join("/tmp", audio_file.filename)
+        # Use a more flexible temp directory approach for Render compatibility
+        temp_dir = os.path.join(os.getcwd(), 'temp') if not os.path.exists('/tmp') else '/tmp'
+        temp_path = os.path.join(temp_dir, audio_file.filename)
         audio_file.save(temp_path)
         transcription_result = transcribe_audio_with_gemini(temp_path)
         os.remove(temp_path)
@@ -947,10 +949,55 @@ def request_location_page():
     """
     return render_template_string(html_content)
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Test database connection
+        conn = get_db_connection()
+        conn.execute('SELECT 1').fetchone()
+        conn.close()
+        
+        # Check API keys
+        api_keys_status = {
+            'image': bool(os.getenv('GOOGLE_API_KEY_IMAGE')),
+            'audio': bool(os.getenv('GOOGLE_API_KEY_AUDIO')),
+            'text': bool(os.getenv('GOOGLE_API_KEY_TEXT')),
+            'report': bool(os.getenv('GOOGLE_API_KEY_REPORT'))
+        }
+        
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'api_keys': api_keys_status,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
 # ==================== 10. RUN FLASK APP ====================
 
 if __name__ == '__main__':
-    if not os.path.exists('/tmp'):
-        os.makedirs('/tmp')
+    # Create temp directory if it doesn't exist (for Render compatibility)
+    temp_dir = os.path.join(os.getcwd(), 'temp')
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    
+    # For local development, fallback to /tmp if available
+    if not os.path.exists('/tmp') and os.name != 'nt':  # Not Windows
+        try:
+            os.makedirs('/tmp')
+        except:
+            pass
+    
     init_database()
-    app.run(debug=True, port=5001)
+    
+    # Use Render's PORT environment variable or default to 5001 for local development
+    port = int(os.environ.get('PORT', 5001))
+    debug_mode = os.environ.get('FLASK_ENV', 'development') == 'development'
+    
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
