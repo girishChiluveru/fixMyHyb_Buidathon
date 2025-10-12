@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Citizen Dashboard - FixMyHyd{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h1>Welcome back, {{ session.user_name or 'Citizen' }}!</h1>
+        <p>Track your reported issues and submit new ones</p>
+    </div>
+
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ user_stats.total_complaints }}</div>
+                <div class="stat-label">Total Reports</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ user_stats.pending_complaints }}</div>
+                <div class="stat-label">Pending</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ user_stats.resolved_complaints }}</div>
+                <div class="stat-label">Resolved</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ user_stats.resolution_rate }}%</div>
+                <div class="stat-label">Resolution Rate</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-actions">
+        <a href="{{ url_for('report_issue') }}" class="btn btn-primary btn-large">
+            <i class="fas fa-plus-circle"></i>
+            Report New Issue
+        </a>
+        <button class="btn btn-secondary" onclick="refreshComplaints()">
+            <i class="fas fa-sync-alt"></i>
+            Refresh
+        </button>
+    </div>
+
+    <div class="complaints-section">
+        <div class="section-header">
+            <h2>Your Recent Reports</h2>
+            <div class="filter-options">
+                <select id="statusFilter" onchange="filterComplaints()">
+                    <option value="">All Status</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Closed">Closed</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="complaints-list" id="complaintsList">
+            {% for complaint in user_complaints %}
+            <div class="complaint-card" data-status="{{ complaint.status }}">
+                <div class="complaint-header">
+                    <div class="complaint-id">
+                        <strong>{{ complaint.ghmc_id }}</strong>
+                    </div>
+                    <div class="complaint-status status-{{ complaint.status.lower().replace(' ', '-') }}">
+                        {{ complaint.status }}
+                    </div>
+                </div>
+                <div class="complaint-content">
+                    <h3>{{ complaint.subject }}</h3>
+                    <p>{{ complaint.description[:150] }}{% if complaint.description|length > 150 %}...{% endif %}</p>
+                    <div class="complaint-meta">
+                        <span class="category">
+                            <i class="fas fa-tag"></i>
+                            {{ complaint.category }}
+                        </span>
+                        <span class="priority priority-{{ complaint.priority.lower() }}">
+                            <i class="fas fa-flag"></i>
+                            {{ complaint.priority }}
+                        </span>
+                        <span class="date">
+                            <i class="fas fa-calendar"></i>
+                            {{ complaint.created_at.strftime('%d %b %Y') }}
+                        </span>
+                    </div>
+                </div>
+                <div class="complaint-actions">
+                    <button class="btn btn-sm btn-outline" onclick="viewComplaint({{ complaint.id }})">
+                        <i class="fas fa-eye"></i>
+                        View Details
+                    </button>
+                </div>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <i class="fas fa-inbox"></i>
+                <h3>No reports yet</h3>
+                <p>Start by reporting your first civic issue!</p>
+                <a href="{{ url_for('report_issue') }}" class="btn btn-primary">
+                    <i class="fas fa-plus-circle"></i>
+                    Report Issue
+                </a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Complaint Details Modal -->
+<div id="complaintModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Complaint Details</h2>
+            <button class="modal-close" onclick="closeModal()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="complaintDetails">
+            <!-- Details will be loaded here -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshComplaints() {
+    location.reload();
+}
+
+function filterComplaints() {
+    const filter = document.getElementById('statusFilter').value;
+    const complaints = document.querySelectorAll('.complaint-card');
+    
+    complaints.forEach(complaint => {
+        if (!filter || complaint.dataset.status === filter) {
+            complaint.style.display = 'block';
+        } else {
+            complaint.style.display = 'none';
+        }
+    });
+}
+
+function viewComplaint(complaintId) {
+    fetch(`/api/user/complaints/${complaintId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading complaint details');
+                return;
+            }
+            
+            const modal = document.getElementById('complaintModal');
+            const details = document.getElementById('complaintDetails');
+            
+            details.innerHTML = `
+                <div class="complaint-detail">
+                    <div class="detail-row">
+                        <strong>Complaint ID:</strong>
+                        <span>${data.ghmc_id}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Status:</strong>
+                        <span class="status-${data.status.toLowerCase().replace(' ', '-')}">${data.status}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Category:</strong>
+                        <span>${data.category}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Priority:</strong>
+                        <span class="priority-${data.priority.toLowerCase()}">${data.priority}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Subject:</strong>
+                        <span>${data.subject}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Description:</strong>
+                        <span>${data.description}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Location:</strong>
+                        <span>${data.location || 'Not specified'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Zone:</strong>
+                        <span>${data.zone || 'Unknown'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Created:</strong>
+                        <span>${new Date(data.created_at).toLocaleString()}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Last Updated:</strong>
+                        <span>${new Date(data.updated_at).toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error loading complaint details');
+        });
+}
+
+function closeModal() {
+    document.getElementById('complaintModal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('complaintModal');
+    if (event.target === modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

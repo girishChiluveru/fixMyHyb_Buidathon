@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - FixMyHyd{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h1>Admin Dashboard</h1>
+        <p>Manage and track all civic complaints</p>
+    </div>
+
+    <div class="dashboard-stats">
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-exclamation-circle"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ admin_stats.total_complaints }}</div>
+                <div class="stat-label">Total Complaints</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ admin_stats.pending_complaints }}</div>
+                <div class="stat-label">Pending</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ admin_stats.resolved_complaints }}</div>
+                <div class="stat-label">Resolved</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">
+                <i class="fas fa-chart-line"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-number">{{ admin_stats.resolution_rate }}%</div>
+                <div class="stat-label">Resolution Rate</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard-actions">
+        <button class="btn btn-primary" onclick="refreshComplaints()">
+            <i class="fas fa-sync-alt"></i>
+            Refresh Data
+        </button>
+        <button class="btn btn-secondary" onclick="exportComplaints()">
+            <i class="fas fa-download"></i>
+            Export Data
+        </button>
+    </div>
+
+    <div class="complaints-section">
+        <div class="section-header">
+            <h2>All Complaints</h2>
+            <div class="filter-options">
+                <select id="statusFilter" onchange="filterComplaints()">
+                    <option value="">All Status</option>
+                    <option value="Submitted">Submitted</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Closed">Closed</option>
+                </select>
+                <select id="categoryFilter" onchange="filterComplaints()">
+                    <option value="">All Categories</option>
+                    <option value="Open Garbage Dump">Open Garbage Dump</option>
+                    <option value="Sewage Leak/Overflow">Sewage Leak/Overflow</option>
+                    <option value="Pothole/Damaged Road">Pothole/Damaged Road</option>
+                    <option value="Damaged Electrical Infrastructure">Damaged Electrical Infrastructure</option>
+                    <option value="Fallen Tree">Fallen Tree</option>
+                    <option value="Water Logging">Water Logging</option>
+                    <option value="Stray Animals">Stray Animals</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="complaints-table-container">
+            <table class="complaints-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Subject</th>
+                        <th>Category</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="complaintsTableBody">
+                    {% for complaint in all_complaints %}
+                    <tr data-status="{{ complaint.status }}" data-category="{{ complaint.category }}">
+                        <td>{{ complaint.ghmc_id }}</td>
+                        <td>{{ complaint.subject[:50] }}{% if complaint.subject|length > 50 %}...{% endif %}</td>
+                        <td>{{ complaint.category }}</td>
+                        <td>
+                            <span class="priority-badge priority-{{ complaint.priority.lower() }}">
+                                {{ complaint.priority }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ complaint.status.lower().replace(' ', '-') }}">
+                                {{ complaint.status }}
+                            </span>
+                        </td>
+                        <td>{{ complaint.created_at.strftime('%d %b %Y') }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline" onclick="viewComplaint({{ complaint.id }})">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="btn btn-sm btn-primary" onclick="updateStatus({{ complaint.id }})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Complaint Details Modal -->
+<div id="complaintModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Complaint Details</h2>
+            <button class="modal-close" onclick="closeModal()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="complaintDetails">
+            <!-- Details will be loaded here -->
+        </div>
+    </div>
+</div>
+
+<!-- Status Update Modal -->
+<div id="statusModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Update Status</h2>
+            <button class="modal-close" onclick="closeStatusModal()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form id="statusUpdateForm">
+                <input type="hidden" id="complaintId" name="complaint_id">
+                <input type="hidden" id="selectedStatus" name="status" required>
+                <div class="form-group">
+                    <label>Select New Status</label>
+                    <div class="status-buttons-grid">
+                        <button type="button" class="status-btn" data-status="Submitted" onclick="selectStatus('Submitted', this)">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Submitted</span>
+                        </button>
+                        <button type="button" class="status-btn" data-status="In Progress" onclick="selectStatus('In Progress', this)">
+                            <i class="fas fa-cog fa-spin"></i>
+                            <span>In Progress</span>
+                        </button>
+                        <button type="button" class="status-btn" data-status="Resolved" onclick="selectStatus('Resolved', this)">
+                            <i class="fas fa-check-circle"></i>
+                            <span>Resolved</span>
+                        </button>
+                        <button type="button" class="status-btn" data-status="Closed" onclick="selectStatus('Closed', this)">
+                            <i class="fas fa-lock"></i>
+                            <span>Closed</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="comments">Comments</label>
+                    <textarea id="comments" name="comments" rows="3" placeholder="Add any comments about the status update..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeStatusModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="updateStatusBtn" disabled>Update Status</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function refreshComplaints() {
+    location.reload();
+}
+
+function filterComplaints() {
+    const statusFilter = document.getElementById('statusFilter').value;
+    const categoryFilter = document.getElementById('categoryFilter').value;
+    const rows = document.querySelectorAll('#complaintsTableBody tr');
+    
+    rows.forEach(row => {
+        const status = row.dataset.status;
+        const category = row.dataset.category;
+        
+        const statusMatch = !statusFilter || status === statusFilter;
+        const categoryMatch = !categoryFilter || category === categoryFilter;
+        
+        if (statusMatch && categoryMatch) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function viewComplaint(complaintId) {
+    fetch(`/api/admin/complaints/${complaintId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error loading complaint details');
+                return;
+            }
+            
+            const modal = document.getElementById('complaintModal');
+            const details = document.getElementById('complaintDetails');
+            
+            details.innerHTML = `
+                <div class="complaint-detail">
+                    <div class="detail-row">
+                        <strong>Complaint ID:</strong>
+                        <span>${data.ghmc_id}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Status:</strong>
+                        <span class="status-${data.status.toLowerCase().replace(' ', '-')}">${data.status}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Category:</strong>
+                        <span>${data.category}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Priority:</strong>
+                        <span class="priority-${data.priority.toLowerCase()}">${data.priority}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Subject:</strong>
+                        <span>${data.subject}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Description:</strong>
+                        <span>${data.description}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Location:</strong>
+                        <span>${data.location || 'Not specified'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Zone:</strong>
+                        <span>${data.zone || 'Unknown'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>GPS Coordinates:</strong>
+                        <span>${data.gps_lat ? `${data.gps_lat}, ${data.gps_lng}` : 'Not available'}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Submitted By:</strong>
+                        <span>${data.submitted_by}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Created:</strong>
+                        <span>${new Date(data.created_at).toLocaleString()}</span>
+                    </div>
+                    <div class="detail-row">
+                        <strong>Last Updated:</strong>
+                        <span>${new Date(data.updated_at).toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error loading complaint details');
+        });
+}
+
+function updateStatus(complaintId) {
+    document.getElementById('complaintId').value = complaintId;
+    document.getElementById('statusModal').style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('complaintModal').style.display = 'none';
+}
+
+function closeStatusModal() {
+    document.getElementById('statusModal').style.display = 'none';
+    // Reset status selection
+    document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById('selectedStatus').value = '';
+    document.getElementById('updateStatusBtn').disabled = true;
+}
+
+function selectStatus(status, buttonElement) {
+    // Remove selected class from all buttons
+    document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('selected'));
+    
+    // Add selected class to clicked button
+    buttonElement.classList.add('selected');
+    
+    // Set the hidden input value
+    document.getElementById('selectedStatus').value = status;
+    
+    // Enable the update button
+    document.getElementById('updateStatusBtn').disabled = false;
+}
+
+document.getElementById('statusUpdateForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const complaintId = document.getElementById('complaintId').value;
+    const status = document.getElementById('selectedStatus').value;
+    const comments = document.getElementById('comments').value;
+    
+    if (!status) {
+        alert('Please select a status');
+        return;
+    }
+    
+    fetch(`/api/admin/complaints/${complaintId}/status`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            status: status,
+            changed_by: 'Admin',
+            comments: comments
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Status updated successfully');
+            closeStatusModal();
+            location.reload();
+        } else {
+            alert('Error updating status: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating status');
+    });
+});
+
+function exportComplaints() {
+    // Simple CSV export
+    const table = document.querySelector('.complaints-table');
+    const rows = table.querySelectorAll('tr');
+    let csv = [];
+    
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('th, td');
+        const rowData = Array.from(cells).map(cell => `"${cell.textContent.trim()}"`);
+        csv.push(rowData.join(','));
+    });
+    
+    const csvContent = csv.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'complaints_export.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    const complaintModal = document.getElementById('complaintModal');
+    const statusModal = document.getElementById('statusModal');
+    
+    if (event.target === complaintModal) {
+        complaintModal.style.display = 'none';
+    }
+    if (event.target === statusModal) {
+        statusModal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}
