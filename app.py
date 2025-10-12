@@ -101,110 +101,202 @@ check_api_keys()
 # ==================== 2. DATABASE SETUP ====================
 
 def get_db_connection():
-    """Establishes SQLite connection with proper path for Render deployment."""
-    # Use a path that works both locally and on Render
-    db_path = os.getenv('DATABASE_PATH', '/opt/render/project/src/fixmyhyd.db')
-    if not os.path.exists('/opt/render'):
-        # Local development
-        db_path = 'fixmyhyd.db'
+    """Establishes database connection - PostgreSQL for production, SQLite for development."""
+    database_url = os.getenv('DATABASE_URL')
     
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if database_url and database_url.startswith('postgresql'):
+        # Production: Use PostgreSQL
+        try:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            # Fix Render's internal URL format if needed
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            conn = psycopg2.connect(database_url, cursor_factory=RealDictCursor)
+            return conn
+        except ImportError:
+            print("❌ psycopg2 not installed. Install with: pip install psycopg2-binary")
+            raise
+        except Exception as e:
+            print(f"❌ PostgreSQL connection failed: {e}")
+            raise
+    else:
+        # Development: Use SQLite
+        db_path = os.getenv('DATABASE_PATH', '/opt/render/project/src/fixmyhyd.db')
+        if not os.path.exists('/opt/render'):
+            # Local development
+            db_path = 'fixmyhyd.db'
+        
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def init_database():
-    """Initializes all required SQLite tables and creates the default admin user."""
+    """Initializes database tables and creates the default admin user."""
     try:
-        # Ensure directory exists for database file
-        db_dir = os.path.dirname(os.path.abspath('fixmyhyd.db'))
-        if not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
+        database_url = os.getenv('DATABASE_URL')
+        is_postgres = database_url and database_url.startswith('postgresql')
+        
+        print(f"🔗 Database Type: {'PostgreSQL' if is_postgres else 'SQLite'}")
         
         conn = get_db_connection()
-        c = conn.cursor()
+        cursor = conn.cursor()
         
-        # Create tables with error handling
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS complaints (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ghmc_id TEXT UNIQUE NOT NULL,
-                category TEXT NOT NULL,
-                priority TEXT DEFAULT 'Medium',
-                subject TEXT NOT NULL,
-                description TEXT NOT NULL,
-                location TEXT,
-                zone TEXT,
-                gps_lat REAL,
-                gps_lng REAL,
-                status TEXT DEFAULT 'Submitted',
-                submitted_by TEXT DEFAULT 'Citizen',
-                user_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
+        if is_postgres:
+            # PostgreSQL syntax
+            print("📊 Creating PostgreSQL tables...")
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS complaints (
+                    id SERIAL PRIMARY KEY,
+                    ghmc_id VARCHAR(255) UNIQUE NOT NULL,
+                    category VARCHAR(100) NOT NULL,
+                    priority VARCHAR(20) DEFAULT 'Medium',
+                    subject TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    location TEXT,
+                    zone VARCHAR(100),
+                    gps_lat DECIMAL(10, 8),
+                    gps_lng DECIMAL(11, 8),
+                    status VARCHAR(50) DEFAULT 'Submitted',
+                    submitted_by VARCHAR(100) DEFAULT 'Citizen',
+                    user_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    phone VARCHAR(20),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS admins (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(100) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS status_history (
+                    id SERIAL PRIMARY KEY,
+                    complaint_id INTEGER REFERENCES complaints(id),
+                    old_status VARCHAR(50),
+                    new_status VARCHAR(50),
+                    changed_by VARCHAR(100),
+                    comments TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Check for existing admin
+            cursor.execute('SELECT COUNT(*) FROM admins')
+            result = cursor.fetchone()
+            admin_count = result[0] if result else 0
+            
+        else:
+            # SQLite syntax
+            print("📊 Creating SQLite tables...")
+            # Ensure directory exists for database file
+            db_dir = os.path.dirname(os.path.abspath('fixmyhyd.db'))
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS complaints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ghmc_id TEXT UNIQUE NOT NULL,
+                    category TEXT NOT NULL,
+                    priority TEXT DEFAULT 'Medium',
+                    subject TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    location TEXT,
+                    zone TEXT,
+                    gps_lat REAL,
+                    gps_lng REAL,
+                    status TEXT DEFAULT 'Submitted',
+                    submitted_by TEXT DEFAULT 'Citizen',
+                    user_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS status_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    complaint_id INTEGER,
+                    old_status TEXT,
+                    new_status TEXT,
+                    changed_by TEXT,
+                    comments TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (complaint_id) REFERENCES complaints (id)
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    phone TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS admins (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Check for existing admin
+            cursor.execute('SELECT COUNT(*) FROM admins')
+            result = cursor.fetchone()
+            admin_count = result[0] if result else 0
         
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS status_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                complaint_id INTEGER,
-                old_status TEXT,
-                new_status TEXT,
-                changed_by TEXT,
-                comments TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (complaint_id) REFERENCES complaints (id)
-            )
-        ''')
-        
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                name TEXT NOT NULL,
-                phone TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS admins (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Create default admin if none exists (admin/admin123)
-        c.execute('SELECT COUNT(*) FROM admins')
-        if c.fetchone()[0] == 0:
+        # Create default admin if none exists
+        if admin_count == 0:
+            print("👤 Creating default admin user...")
             admin_password = hash_password('admin123')
-            c.execute('''
-                INSERT INTO admins (username, password_hash, name)
-                VALUES (?, ?, ?)
-            ''', ('admin', admin_password, 'System Administrator'))
+            
+            if is_postgres:
+                cursor.execute('''
+                    INSERT INTO admins (username, password_hash, name)
+                    VALUES (%s, %s, %s)
+                ''', ('admin', admin_password, 'System Administrator'))
+            else:
+                cursor.execute('''
+                    INSERT INTO admins (username, password_hash, name)
+                    VALUES (?, ?, ?)
+                ''', ('admin', admin_password, 'System Administrator'))
         
         conn.commit()
+        cursor.close()
         conn.close()
         print("✅ Database initialized successfully")
         
     except Exception as e:
         print(f"❌ Database initialization error: {e}")
-        # Create in-memory database as fallback
-        try:
-            print("🔄 Attempting fallback database setup...")
-            conn = sqlite3.connect(':memory:')
-            conn.row_factory = sqlite3.Row
-            # Re-run table creation for in-memory DB
-            # This is a temporary fix for deployment
-            print("⚠️ Using in-memory database (data will not persist)")
-        except Exception as fallback_error:
-            print(f"❌ Fallback database also failed: {fallback_error}")
-            raise
+        import traceback
+        traceback.print_exc()
+        raise
 
 # ==================== 3. AI HELPER FUNCTIONS (PLACEHOLDERS) ====================
 # NOTE: Actual Gemini API integration logic is complex and requires proper API keys.
@@ -450,6 +542,36 @@ def reverse_geocode_coordinates(latitude, longitude, max_retries=3):
         return f"Geocoding failed due to error. Lat/Lng: ({latitude:.4f}, {longitude:.4f})"
 # ==================== 4. AUTHENTICATION FUNCTIONS ====================
 
+def execute_query(conn, query, params=None, fetch_one=False, fetch_all=False):
+    """Execute database query with proper parameter handling for PostgreSQL/SQLite"""
+    database_url = os.getenv('DATABASE_URL')
+    is_postgres = database_url and database_url.startswith('postgresql')
+    
+    try:
+        cursor = conn.cursor()
+        
+        if is_postgres and params:
+            # Convert SQLite-style (?) parameters to PostgreSQL-style (%s)
+            postgres_query = query.replace('?', '%s')
+            cursor.execute(postgres_query, params)
+        else:
+            # SQLite style
+            cursor.execute(query, params or ())
+        
+        if fetch_one:
+            result = cursor.fetchone()
+            return dict(result) if result else None
+        elif fetch_all:
+            results = cursor.fetchall()
+            return [dict(row) for row in results] if results else []
+        else:
+            return cursor
+    except Exception as e:
+        print(f"❌ Database query error: {e}")
+        print(f"Query: {query}")
+        print(f"Params: {params}")
+        raise
+
 def hash_password(password):
     """Hash a password using SHA-256 with salt"""
     salt = secrets.token_hex(16)
@@ -617,17 +739,21 @@ def admin_login():
             flash('Please fill in all fields.', 'error')
             return render_template('admin_login.html')
         
-        conn = get_db_connection()
-        admin = conn.execute('SELECT * FROM admins WHERE username = ?', (username,)).fetchone()
-        conn.close()
-        
-        if admin and verify_password(password, admin['password_hash']):
-            session['admin_id'] = admin['id']
-            session['admin_name'] = admin['name']
-            flash('Admin login successful!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Invalid username or password.', 'error')
+        try:
+            conn = get_db_connection()
+            admin = execute_query(conn, 'SELECT * FROM admins WHERE username = ?', (username,), fetch_one=True)
+            conn.close()
+            
+            if admin and verify_password(password, admin['password_hash']):
+                session['admin_id'] = admin['id']
+                session['admin_name'] = admin['name']
+                flash('Admin login successful!', 'success')
+                return redirect(url_for('admin_dashboard'))
+            else:
+                flash('Invalid username or password.', 'error')
+        except Exception as e:
+            print(f"❌ Admin login database error: {e}")
+            flash('Database connection error. Please try again.', 'error')
     
     return render_template('admin_login.html')
 
@@ -987,7 +1113,18 @@ def health_check():
     try:
         # Test database connection
         conn = get_db_connection()
-        conn.execute('SELECT 1').fetchone()
+        
+        # Test a simple query
+        database_url = os.getenv('DATABASE_URL')
+        is_postgres = database_url and database_url.startswith('postgresql')
+        
+        if is_postgres:
+            cursor = conn.cursor()
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+        else:
+            conn.execute('SELECT 1').fetchone()
+        
         conn.close()
         
         # Check API keys
@@ -1000,14 +1137,45 @@ def health_check():
         
         return jsonify({
             'status': 'healthy',
-            'database': 'connected',
+            'database': 'PostgreSQL' if is_postgres else 'SQLite',
+            'database_connected': True,
             'api_keys': api_keys_status,
             'timestamp': datetime.now().isoformat()
         }), 200
     except Exception as e:
         return jsonify({
             'status': 'unhealthy',
+            'database_connected': False,
             'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/db-test')
+def database_test():
+    """Test database connection and show admin users"""
+    try:
+        conn = get_db_connection()
+        database_url = os.getenv('DATABASE_URL')
+        is_postgres = database_url and database_url.startswith('postgresql')
+        
+        # Test admin table
+        admins = execute_query(conn, 'SELECT username, name, created_at FROM admins', fetch_all=True)
+        conn.close()
+        
+        return jsonify({
+            'database_type': 'PostgreSQL' if is_postgres else 'SQLite',
+            'database_url': database_url[:20] + '...' if database_url else 'None',
+            'admin_users': admins,
+            'total_admins': len(admins),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'database_url': os.getenv('DATABASE_URL', 'Not set')[:20] + '...' if os.getenv('DATABASE_URL') else 'Not set',
             'timestamp': datetime.now().isoformat()
         }), 500
 
