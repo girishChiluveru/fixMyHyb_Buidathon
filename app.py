@@ -705,9 +705,40 @@ def format_datetime(timestamp):
 
 # ==================== 6. WEB ROUTES (Logical Errors Fixed & Timestamp Parsing Applied) ====================
 
+# @app.route('/')
+# def home():
+#     return render_template('home.html')
 @app.route('/')
 def home():
-    return render_template('home.html')
+    conn = get_db_connection()
+
+    # Fetch complaint statistics
+    total_complaints = conn.execute('SELECT COUNT(*) FROM complaints').fetchone()[0]
+    resolved_complaints = conn.execute('SELECT COUNT(*) FROM complaints WHERE status = "Resolved"').fetchone()[0]
+    total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+
+    # Calculate resolution rate
+    resolution_rate = round((resolved_complaints / total_complaints * 100) if total_complaints > 0 else 0)
+
+    # Optional: Calculate average days between submission and resolution (if timestamps exist)
+    avg_days_result = conn.execute('''
+        SELECT AVG(
+            JULIANDAY(updated_at) - JULIANDAY(created_at)
+        ) FROM complaints WHERE status = "Resolved"
+    ''').fetchone()[0]
+    avg_days = round(avg_days_result or 0, 1)
+
+    conn.close()
+
+    admin_stats = {
+        "total_complaints": total_complaints,
+        "resolution_rate": resolution_rate,
+        "avg_days": avg_days,
+        "total_users": total_users
+    }
+
+    return render_template('home.html', admin_stats=admin_stats)
+
 
 @app.route('/user/login', methods=['GET', 'POST'])
 def user_login():
