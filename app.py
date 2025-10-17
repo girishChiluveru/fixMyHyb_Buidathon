@@ -711,21 +711,31 @@ def format_datetime(timestamp):
 @app.route('/')
 def home():
     conn = get_db_connection()
+    cursor = conn.cursor()
 
-    # Fetch complaint statistics
-    total_complaints = conn.execute('SELECT COUNT(*) FROM complaints').fetchone()[0]
-    resolved_complaints = conn.execute('SELECT COUNT(*) FROM complaints WHERE status = "Resolved"').fetchone()[0]
-    total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    # Detect database type
+    database_url = os.getenv('DATABASE_URL')
+    is_postgres = database_url and ('postgresql' in database_url or 'postgres' in database_url)
 
-    # Calculate resolution rate
+    # --- Complaint & user counts ---
+    total_complaints = cursor.execute('SELECT COUNT(*) FROM complaints').fetchone()[0]
+    resolved_complaints = cursor.execute('SELECT COUNT(*) FROM complaints WHERE status = "Resolved"' if not is_postgres else "SELECT COUNT(*) FROM complaints WHERE status = 'Resolved'").fetchone()[0]
+    total_users = cursor.execute('SELECT COUNT(*) FROM users').fetchone()[0]
     resolution_rate = round((resolved_complaints / total_complaints * 100) if total_complaints > 0 else 0)
 
-    # Optional: Calculate average days between submission and resolution (if timestamps exist)
-    avg_days_result = conn.execute('''
-        SELECT AVG(
-            JULIANDAY(updated_at) - JULIANDAY(created_at)
-        ) FROM complaints WHERE status = "Resolved"
-    ''').fetchone()[0]
+    # --- Average days to resolve ---
+    if is_postgres:
+        cursor.execute("""
+            SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400.0)
+            FROM complaints WHERE status = 'Resolved'
+        """)
+    else:
+        cursor.execute("""
+            SELECT AVG(JULIANDAY(updated_at) - JULIANDAY(created_at))
+            FROM complaints WHERE status = "Resolved"
+        """)
+
+    avg_days_result = cursor.fetchone()[0]
     avg_days = round(avg_days_result or 0, 1)
 
     conn.close()
@@ -738,6 +748,7 @@ def home():
     }
 
     return render_template('home.html', admin_stats=admin_stats)
+
 
 
 @app.route('/user/login', methods=['GET', 'POST'])
