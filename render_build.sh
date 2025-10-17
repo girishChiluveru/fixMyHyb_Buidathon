@@ -12,4 +12,5 @@ apt-get update && apt-get install -y \
   python3-tk \
   libharfbuzz-dev \
   libfribidi-dev \
-  libxcb1-dev
+  libxcb1-dev \
+  geopy
