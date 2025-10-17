@@ -60,12 +60,36 @@
                 </div>
             </div>
             
+            <!-- Terms Checkbox -->
             <div class="form-options">
                 <label class="checkbox-label">
                     <input type="checkbox" name="terms" required>
                     <span class="checkmark"></span>
-                    I agree to the <a href="#" class="terms-link">Terms of Service</a>
+                    I agree to the 
+                    <a href="#" class="pop-terms-link" id="pop-terms-link">Terms of Service</a>
                 </label>
+            </div>
+
+            <!-- Terms of Service Modal -->
+            <div id="pop-modal" class="pop-modal">
+                <div class="pop-modal-content">
+                    <span class="pop-close" id="pop-close">&times;</span>
+                    <h2 class="pop-title">Terms of Service</h2>
+                    <div class="pop-scroll">
+                        <p>Welcome to FixMyHyd. By using this platform, you agree to the following terms:</p>
+                        <ul>
+                            <li>1. You will submit only genuine civic issues with accurate details.</li>
+                            <li>2. You consent to FixMyHyd forwarding your report to GHMC or related civic authorities.</li>
+                            <li>3. False, misleading, or spam reports may result in account suspension.</li>
+                            <li>4. Submitted photos, descriptions, and geolocation data may be stored for verification and analytics.</li>
+                            <li>5. FixMyHyd does not guarantee resolution times — it facilitates reporting and tracking.</li>
+                        </ul>
+                        <p>By checking the box above, you acknowledge and agree to these terms.</p>
+                    </div>
+                    <div class="pop-footer">
+                        <button id="pop-accept" class="pop-btn">Accept</button>
+                    </div>
+                </div>
             </div>
             
             <button type="submit" class="btn btn-primary btn-full">

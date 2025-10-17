@@ -423,3 +423,59 @@ window.FixMyHyd = {
     showLoading,
     hideLoading
 };
+function deleteComplaint(complaintId) {
+    if (!confirm("Are you sure you want to delete this complaint? This action cannot be undone.")) {
+        return;
+    }
+
+    fetch(`/api/admin/complaints/${complaintId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Complaint deleted successfully');
+            // Remove the row from table without reloading
+            const row = document.querySelector(`#complaintsTableBody tr[data-id="${complaintId}"]`);
+            if (row) row.remove();
+            location.reload();
+        } else {
+            alert('Error deleting complaint: ' + data.message || data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting complaint');
+    });
+    
+}
+// Get elements
+const popModal = document.getElementById('pop-modal');
+const popLink = document.getElementById('pop-terms-link');
+const popClose = document.getElementById('pop-close');
+const popAccept = document.getElementById('pop-accept');
+
+// Open modal
+popLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    popModal.style.display = 'block';
+});
+
+// Close on (x)
+popClose.addEventListener('click', () => {
+    popModal.style.display = 'none';
+});
+
+// Close when clicking outside
+window.addEventListener('click', (e) => {
+    if (e.target === popModal) popModal.style.display = 'none';
+});
+
+// Close when "Accept" is clicked
+popAccept.addEventListener('click', () => {
+    popModal.style.display = 'none';
+});
+

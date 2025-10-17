@@ -15,8 +15,8 @@
                 <i class="fas fa-exclamation-circle"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-number">{{ admin_stats.total_complaints }}</div>
-                <div class="stat-label">Total Complaints</div>
+                <div class="stat-number-d">{{ admin_stats.total_complaints }}</div>
+                <div class="stat-label-d">Total Complaints</div>
             </div>
         </div>
         <div class="stat-card">
@@ -24,8 +24,8 @@
                 <i class="fas fa-clock"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-number">{{ admin_stats.pending_complaints }}</div>
-                <div class="stat-label">Pending</div>
+                <div class="stat-number-d">{{ admin_stats.pending_complaints }}</div>
+                <div class="stat-label-d">Pending</div>
             </div>
         </div>
         <div class="stat-card">
@@ -33,8 +33,8 @@
                 <i class="fas fa-check-circle"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-number">{{ admin_stats.resolved_complaints }}</div>
-                <div class="stat-label">Resolved</div>
+                <div class="stat-number-d">{{ admin_stats.resolved_complaints }}</div>
+                <div class="stat-label-d">Resolved</div>
             </div>
         </div>
         <div class="stat-card">
@@ -42,8 +42,8 @@
                 <i class="fas fa-chart-line"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-number">{{ admin_stats.resolution_rate }}%</div>
-                <div class="stat-label">Resolution Rate</div>
+                <div class="stat-number-d">{{ admin_stats.resolution_rate }}%</div>
+                <div class="stat-label-d">Resolution Rate</div>
             </div>
         </div>
     </div>
@@ -115,11 +115,14 @@
                         </td>
                         <td>{{ complaint.created_at.strftime('%d %b %Y') }}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline" onclick="viewComplaint({{ complaint.id }})">
+                            <button class="btn btn-sm btn-outline custombtn" onclick="viewComplaint('{{ complaint.id }}')">
                                 <i class="fas fa-eye"></i>
                             </button>
-                            <button class="btn btn-sm btn-primary" onclick="updateStatus({{ complaint.id }})">
+                            <button class="btn btn-sm btn-primary custombtn" onclick="updateStatus('{{ complaint.id }}')">
                                 <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger custombtn" onclick="deleteComplaint('{{ complaint.id }}')">
+                                <i class="fas fa-trash-alt"></i>
                             </button>
                         </td>
                     </tr>
@@ -157,27 +160,14 @@
         <div class="modal-body">
             <form id="statusUpdateForm">
                 <input type="hidden" id="complaintId" name="complaint_id">
-                <input type="hidden" id="selectedStatus" name="status" required>
                 <div class="form-group">
-                    <label>Select New Status</label>
-                    <div class="status-buttons-grid">
-                        <button type="button" class="status-btn" data-status="Submitted" onclick="selectStatus('Submitted', this)">
-                            <i class="fas fa-paper-plane"></i>
-                            <span>Submitted</span>
-                        </button>
-                        <button type="button" class="status-btn" data-status="In Progress" onclick="selectStatus('In Progress', this)">
-                            <i class="fas fa-cog fa-spin"></i>
-                            <span>In Progress</span>
-                        </button>
-                        <button type="button" class="status-btn" data-status="Resolved" onclick="selectStatus('Resolved', this)">
-                            <i class="fas fa-check-circle"></i>
-                            <span>Resolved</span>
-                        </button>
-                        <button type="button" class="status-btn" data-status="Closed" onclick="selectStatus('Closed', this)">
-                            <i class="fas fa-lock"></i>
-                            <span>Closed</span>
-                        </button>
-                    </div>
+                    <label for="newStatus">New Status</label>
+                    <select id="newStatus" name="status" required>
+                        <option value="Submitted">Submitted</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label for="comments">Comments</label>
@@ -185,7 +175,7 @@
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeStatusModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="updateStatusBtn" disabled>Update Status</button>
+                    <button type="submit" class="btn btn-primary">Update Status</button>
                 </div>
             </form>
         </div>
@@ -303,37 +293,14 @@ function closeModal() {
 
 function closeStatusModal() {
     document.getElementById('statusModal').style.display = 'none';
-    // Reset status selection
-    document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('selected'));
-    document.getElementById('selectedStatus').value = '';
-    document.getElementById('updateStatusBtn').disabled = true;
-}
-
-function selectStatus(status, buttonElement) {
-    // Remove selected class from all buttons
-    document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('selected'));
-    
-    // Add selected class to clicked button
-    buttonElement.classList.add('selected');
-    
-    // Set the hidden input value
-    document.getElementById('selectedStatus').value = status;
-    
-    // Enable the update button
-    document.getElementById('updateStatusBtn').disabled = false;
 }
 
 document.getElementById('statusUpdateForm').addEventListener('submit', function(e) {
     e.preventDefault();
     
     const complaintId = document.getElementById('complaintId').value;
-    const status = document.getElementById('selectedStatus').value;
+    const status = document.getElementById('newStatus').value;
     const comments = document.getElementById('comments').value;
-    
-    if (!status) {
-        alert('Please select a status');
-        return;
-    }
     
     fetch(`/api/admin/complaints/${complaintId}/status`, {
         method: 'PUT',
