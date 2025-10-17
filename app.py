@@ -552,53 +552,42 @@ import time
 import google.generativeai as genai
 import traceback
 
-def reverse_geocode_coordinates(latitude, longitude, max_retries=3):
+# Add this new import at the top of app.py
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderUnavailable
+
+# Replace your reverse_geocode_coordinates function with this one
+def reverse_geocode_coordinates(latitude, longitude):
     """
-    Converts GPS coordinates to a human-readable address using Gemini's built-in search grounding.
+    Converts GPS coordinates to a human-readable address using OpenStreetMap's Nominatim service.
     """
     if latitude is None or longitude is None:
         return "Location not available"
 
     try:
-        api_key = os.getenv("GOOGLE_API_KEY_TEXT")
-        if not api_key:
-            print("❌ ERROR: GOOGLE_API_KEY_TEXT is not set for geocoding!")
-            return f"Geocoding failed (API Key missing). Lat/Lng: ({latitude:.4f}, {longitude:.4f})"
-
-        genai.configure(api_key=api_key)
+        # The user_agent is important for Nominatim's usage policy
+        geolocator = Nominatim(user_agent="fixmyhyd_app")
         
-        # A clear prompt for the model to understand the task
-        prompt = f"What is the street address for the GPS coordinates: Latitude {latitude}, Longitude {longitude}? Provide only the address."
+        # Make the API call
+        location = geolocator.reverse((latitude, longitude), exactly_one=True, timeout=10)
 
-        for attempt in range(max_retries):
-            try:
-                # --- FIX 1: Use a powerful model with excellent grounding capabilities ---
-                model = genai.GenerativeModel('gemini-2.5-flash-lite')
-
-                # --- FIX 2: Remove the incorrect 'tools' parameter ---
-                # The model will automatically use its search tool based on the prompt.
-                response = model.generate_content(prompt)
-                
-                address = response.text.strip()
-                print(f"🌍 Geocoding successful: {address[:100]}...")
-                return address
-
-            except Exception as e:
-                error_str = str(e)
-                print(f"❌ Geocoding API error (attempt {attempt + 1}): {error_str}")
-                if "429" in error_str or "quota" in error_str.lower():
-                    if attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) * 2 + 7
-                        print(f"⏳ Quota exceeded, retrying in {wait_time}s...")
-                        time.sleep(wait_time)
-                        continue
-                # If it's not a quota error or retries are exhausted, re-raise it
-                raise e
-
+        # Check if we got a result and return the address
+        if location:
+            address = location.address
+            print(f"🌍 Nominatim (OSM) Geocoding successful: {address}")
+            return address
+        else:
+            return "Could not determine address from coordinates via Nominatim."
+            
+    except GeocoderUnavailable as e:
+        print(f"❌ Nominatim service is unavailable: {e}")
+        return f"Geocoding service is temporarily down. Lat/Lng: ({latitude:.4f}, {longitude:.4f})"
+        
     except Exception as e:
-        print(f"❌ FATAL ERROR in reverse_geocode_coordinates: {e}")
-        traceback.print_exc()
-        return f"Geocoding failed due to error. Lat/Lng: ({latitude:.4f}, {longitude:.4f})"
+        print(f"❌ FATAL ERROR in reverse_geocode_coordinates (Nominatim): {e}")
+        return f"Geocoding failed due to an error. Lat/Lng: ({latitude:.4f}, {longitude:.4f})"
+    
+    
 # ==================== 4. AUTHENTICATION FUNCTIONS ====================
 
 def execute_query(conn, query, params=None, fetch_one=False, fetch_all=False):
